@@ -278,7 +278,7 @@ GoodbyeYT — независимый некоммерческий проект. 
 
 ## 📄 Лицензия
 
-[MIT License](LICENSE) © 2024 GoodbyeYT Contributors
+[MIT License](LICENSE) © 2026 GoodbyeYT Contributors
 
 ---
 
@@ -286,6 +286,6 @@ GoodbyeYT — независимый некоммерческий проект. 
 
 **Сделано с ❤️ для российских пользователей**
 
-[⭐ Поставить звезду](https://github.com/your-username/goodbyeyt) · [🐛 Сообщить о баге](https://github.com/your-username/goodbyeyt/issues) · [💡 Предложить идею](https://github.com/your-username/goodbyeyt/discussions)
+
 
 </div>
