@@ -1,6 +1,9 @@
 name: 🛡️ Instance Emergency Recovery
 
 on:
+  schedule:
+    # Каждый день в 03:00 UTC (06:00 Moscow)
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       reason:
