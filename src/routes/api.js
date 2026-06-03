@@ -6,7 +6,7 @@
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
-const { getBestPipedInstance, getInstancesStatus } = require('../utils/instanceManager');
+const { getStreams, getInstancesStatus } = require('../utils/instanceManager');
 
 const router = express.Router();
 const cache = new NodeCache({ stdTTL: 60 }); // 1 минута кеш
@@ -85,12 +85,9 @@ router.get('/video/:id', async (req, res) => {
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
 
-    const [videoResp, pipedUrl] = await Promise.all([
-      axios.get(`${YT_API_BASE}/videos`, {
-        params: { part: 'snippet,contentDetails,statistics', id, key: apiKey }
-      }),
-      getBestPipedInstance().catch(() => null)
-    ]);
+    const videoResp = await axios.get(`${YT_API_BASE}/videos`, {
+      params: { part: 'snippet,contentDetails,statistics', id, key: apiKey }
+    });
 
     if (!videoResp.data.items?.length) {
       return res.status(404).json({ error: 'Видео не найдено' });
@@ -98,18 +95,38 @@ router.get('/video/:id', async (req, res) => {
 
     const video = formatVideo(videoResp.data.items[0]);
 
-    // Получаем стрим-данные через Piped
-    if (pipedUrl) {
+    // Получаем стрим-данные через Piped (перебирает все инстансы)
+    const pipedResult = await getStreams(id).catch(() => null);
+    if (pipedResult) {
+      video.streams = processPipedStreams(pipedResult.data);
+      video.subtitles = pipedResult.data.subtitles || [];
+      const pipedRelated = (pipedResult.data.relatedStreams || []).slice(0, 12).map(formatPipedRelated);
+      if (pipedRelated.length > 0) {
+        video.relatedStreams = pipedRelated;
+      }
+    }
+
+    // Похожие видео через YouTube API (fallback или дополнение)
+    if (!video.relatedStreams?.length) {
       try {
-        const pipedResp = await axios.get(`${pipedUrl}/streams/${id}`, {
-          timeout: 5000,
-          headers: { 'User-Agent': 'GoodbyeYT/1.0' }
+        const relatedSearch = await axios.get(`${YT_API_BASE}/search`, {
+          params: {
+            part: 'snippet',
+            type: 'video',
+            relatedToVideoId: id,
+            maxResults: 12,
+            key: apiKey,
+          }
         });
-        video.streams = processPipedStreams(pipedResp.data);
-        video.subtitles = pipedResp.data.subtitles || [];
-        video.relatedStreams = (pipedResp.data.relatedStreams || []).slice(0, 12).map(formatPipedRelated);
+        const relatedIds = (relatedSearch.data.items || []).map(i => i.id.videoId).filter(Boolean).join(',');
+        if (relatedIds) {
+          const relatedDetails = await axios.get(`${YT_API_BASE}/videos`, {
+            params: { part: 'snippet,contentDetails,statistics', id: relatedIds, key: apiKey }
+          });
+          video.relatedStreams = (relatedDetails.data.items || []).map(formatVideo);
+        }
       } catch (e) {
-        console.log(`Piped недоступен для ${id}: ${e.message}`);
+        console.log(`Похожие видео через YouTube API недоступны: ${e.message}`);
       }
     }
 

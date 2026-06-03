@@ -1,92 +1,74 @@
 /**
- * GoodbyeYT — Stream Proxy
- * Проксируем стримы через Piped инстанс (обходим блокировки)
+ * GoodbyeYT — Stream Proxy v2
+ * Piped → Invidious → YouTube embed
  */
 
 const express = require('express');
 const axios = require('axios');
-const { getBestPipedInstance } = require('../utils/instanceManager');
+const { getStreams } = require('../utils/instanceManager');
 
 const router = express.Router();
 
-// Прокси для видео/аудио стримов
+// Прокси для видео/аудио потоков (обход блокировок)
 router.get('/proxy', async (req, res) => {
   const { url } = req.query;
-
-  if (!url) {
-    return res.status(400).json({ error: 'URL не указан' });
-  }
+  if (!url) return res.status(400).json({ error: 'URL не указан' });
 
   try {
-    const decodedUrl = decodeURIComponent(url);
-
-    // Только разрешённые домены
-    const allowed = [
-      'googlevideo.com',
-      'youtube.com',
-      'ytimg.com',
-      'piped',
-      'pipedapi',
-    ];
-
-    const isAllowed = allowed.some(d => decodedUrl.includes(d));
-    if (!isAllowed) {
+    const decoded = decodeURIComponent(url);
+    const allowed = ['googlevideo.com', 'youtube.com', 'ytimg.com', 'piped', 'pipedapi', 'invidious', 'yewtu.be'];
+    if (!allowed.some(d => decoded.includes(d))) {
       return res.status(403).json({ error: 'Домен не разрешён' });
     }
 
     const range = req.headers.range;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (compatible; GoodbyeYT/1.0)',
-      ...(range ? { Range: range } : {}),
-    };
-
     const upstream = await axios({
       method: 'GET',
-      url: decodedUrl,
-      headers,
+      url: decoded,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; GoodbyeYT/2.0)',
+        ...(range ? { Range: range } : {}),
+      },
       responseType: 'stream',
       timeout: 30000,
     });
 
-    const status = range ? 206 : upstream.status;
-    res.status(status);
+    res.status(range ? 206 : upstream.status);
     res.set('Content-Type', upstream.headers['content-type'] || 'video/mp4');
     res.set('Accept-Ranges', 'bytes');
-    if (upstream.headers['content-length']) {
-      res.set('Content-Length', upstream.headers['content-length']);
-    }
-    if (upstream.headers['content-range']) {
-      res.set('Content-Range', upstream.headers['content-range']);
-    }
-
+    if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
+    if (upstream.headers['content-range']) res.set('Content-Range', upstream.headers['content-range']);
     upstream.data.pipe(res);
   } catch (err) {
     console.error('Stream proxy error:', err.message);
-    if (!res.headersSent) {
-      res.status(502).json({ error: 'Не удалось загрузить поток' });
-    }
+    if (!res.headersSent) res.status(502).json({ error: 'Не удалось загрузить поток' });
   }
 });
 
-// Получить стримы для видео напрямую через Piped
+// Получить стримы: Piped → Invidious → embed fallback
 router.get('/sources/:videoId', async (req, res) => {
   const { videoId } = req.params;
 
   try {
-    const pipedBase = await getBestPipedInstance();
-    const resp = await axios.get(`${pipedBase}/streams/${videoId}`, {
-      timeout: 8000,
-      headers: { 'User-Agent': 'GoodbyeYT/1.0' }
-    });
+    const result = await getStreams(videoId);
 
-    const data = resp.data;
+    if (!result) {
+      return res.status(503).json({
+        error: 'Все источники временно недоступны',
+        fallback: 'embed',
+        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`,
+        source: 'none',
+      });
+    }
 
-    // Возвращаем только что нужно плееру
+    const d = result.data;
     res.json({
-      hls: data.hls,
-      dash: data.dash,
-      liveStream: data.liveStream,
-      videoStreams: (data.videoStreams || []).map(s => ({
+      source: result.source,       // 'piped' | 'invidious'
+      instanceUrl: result.instanceUrl,
+      hls: d.hls || null,
+      dash: d.dash || null,
+      liveStream: d.liveStream || false,
+      videoStreams: (d.videoStreams || []).map(s => ({
         url: s.url,
         quality: s.quality,
         fps: s.fps,
@@ -94,17 +76,23 @@ router.get('/sources/:videoId', async (req, res) => {
         videoOnly: s.videoOnly,
         codec: s.codec,
       })),
-      audioStreams: (data.audioStreams || []).map(s => ({
+      audioStreams: (d.audioStreams || []).map(s => ({
         url: s.url,
         quality: s.quality,
         bitrate: s.bitrate,
         mimeType: s.mimeType,
       })),
-      subtitles: data.subtitles || [],
+      subtitles: d.subtitles || [],
+      relatedStreams: d.relatedStreams || [],
     });
   } catch (err) {
     console.error(`Stream sources error for ${videoId}:`, err.message);
-    res.status(502).json({ error: 'Не удалось получить источники видео' });
+    res.status(502).json({
+      error: 'Ошибка получения источников',
+      fallback: 'embed',
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`,
+      source: 'none',
+    });
   }
 });
 

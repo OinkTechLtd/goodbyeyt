@@ -429,29 +429,7 @@ function renderVideoInfo(v) {
   $('channel-row').onclick = () => {};
 
   // Related
-  const related = $('related-list');
-  related.innerHTML = '';
-  if (v.relatedStreams?.length) {
-    v.relatedStreams.forEach(r => {
-      const card = document.createElement('div');
-      card.className = 'related-card';
-      card.innerHTML = `
-        <div class="related-thumb">
-          <img src="${r.thumbnail || ''}" alt="${escHtml(r.title)}" loading="lazy" />
-          <span class="thumb-duration">${r.duration || ''}</span>
-        </div>
-        <div class="related-info">
-          <div class="related-title">${escHtml(r.title)}</div>
-          <div class="related-channel">${escHtml(r.channelTitle || '')}</div>
-          <div class="related-meta">${formatNum(r.viewCount)} просм.</div>
-        </div>
-      `;
-      card.addEventListener('click', () => openVideo(r.id));
-      related.appendChild(card);
-    });
-  } else {
-    related.innerHTML = '<div style="padding:20px;color:var(--text3);font-size:14px">Нет похожих видео</div>';
-  }
+  renderRelated(v.relatedStreams);
 }
 
 async function initPlayer(v) {
@@ -462,13 +440,26 @@ async function initPlayer(v) {
   qualitySelect.innerHTML = '<option value="auto">Авто (HLS)</option>';
 
   let streams = v.streams;
+  let embedFallback = null;
 
-  // If no streams yet, fetch via /stream/sources
+  // If no streams yet, fetch via /stream/sources (перебирает все инстансы)
   if (!streams) {
     try {
       const res = await fetch(`/stream/sources/${v.id}`);
-      if (res.ok) streams = await res.json();
-    } catch {}
+      const data = await res.json();
+      if (res.ok && !data.fallback) {
+        streams = data;
+        // Похожие видео из Piped (если ещё не загружены через API)
+        if (data.relatedStreams?.length && !v.relatedStreams?.length) {
+          v.relatedStreams = data.relatedStreams;
+          renderRelated(v.relatedStreams);
+        }
+      } else if (data.fallback === 'embed') {
+        embedFallback = data.embedUrl || `https://www.youtube-nocookie.com/embed/${v.id}`;
+      }
+    } catch {
+      embedFallback = `https://www.youtube-nocookie.com/embed/${v.id}`;
+    }
   }
 
   if (streams?.hls) {
@@ -499,7 +490,6 @@ async function initPlayer(v) {
     // Direct streams
     const videoStreams = streams.videoStreams.filter(s => !s.videoOnly);
     if (!videoStreams.length && streams.videoStreams.length) {
-      // fallback to video-only first stream
       video.src = streams.videoStreams[0].url;
     } else {
       video.src = videoStreams[0]?.url || streams.videoStreams[0].url;
@@ -527,9 +517,54 @@ async function initPlayer(v) {
     video.play().catch(() => {});
     $('player-spinner').classList.add('hidden');
   } else {
-    // Fallback: try piped embed approach
+    // Fallback: YouTube embed (работает всегда)
     $('player-spinner').classList.add('hidden');
-    toast('Видео временно недоступно через инстанс', 'error');
+    const url = embedFallback || `https://www.youtube-nocookie.com/embed/${v.id}`;
+    showEmbedFallback(url);
+  }
+}
+
+function showEmbedFallback(embedUrl) {
+  const video = $('main-video');
+  const wrapper = video.parentElement;
+
+  // Скрываем <video> и показываем iframe
+  video.style.display = 'none';
+  let iframe = wrapper.querySelector('.embed-iframe');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.className = 'embed-iframe';
+    iframe.style.cssText = 'width:100%;height:100%;border:0;position:absolute;top:0;left:0;';
+    iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+    iframe.allowFullscreen = true;
+    wrapper.appendChild(iframe);
+  }
+  iframe.src = embedUrl;
+  iframe.style.display = 'block';
+}
+
+function renderRelated(relatedStreams) {
+  const related = $('related-list');
+  if (!related) return;
+  related.innerHTML = '';
+  if (relatedStreams?.length) {
+    relatedStreams.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'related-card';
+      card.innerHTML = `
+        <div class="related-thumb">
+          <img src="${r.thumbnail || ''}" alt="${escHtml(r.title)}" loading="lazy" />
+          <span class="thumb-duration">${r.duration || ''}</span>
+        </div>
+        <div class="related-info">
+          <div class="related-title">${escHtml(r.title)}</div>
+          <div class="related-channel">${escHtml(r.channelTitle || '')}</div>
+          <div class="related-meta">${formatNum(r.viewCount)} просм.</div>
+        </div>
+      `;
+      card.addEventListener('click', () => openVideo(r.id));
+      related.appendChild(card);
+    });
   }
 }
 

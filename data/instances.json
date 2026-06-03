@@ -1,24 +1,27 @@
 {
-  "updatedAt": "2026-06-03T22:09:50.172Z",
+  "updatedAt": "2026-06-04T00:00:00.000Z",
   "piped": [
-    {
-      "url": "https://piped.video/api",
-      "latency": 742
-    },
-    {
-      "url": "https://api.piped.private.coffee",
-      "latency": 1557
-    },
-    {
-      "url": "https://api.piped.projectsegfau.lt",
-      "latency": 1796
-    }
+    { "url": "https://piped.video/api",                   "latency": 500 },
+    { "url": "https://pipedapi.kavin.rocks",              "latency": 600 },
+    { "url": "https://api.piped.projectsegfau.lt",        "latency": 700 },
+    { "url": "https://api.piped.private.coffee",          "latency": 800 },
+    { "url": "https://piped-api.garudalinux.org",         "latency": 900 },
+    { "url": "https://pipedapi.adminforge.de",            "latency": 1000 },
+    { "url": "https://piped-api.privacy.com.de",          "latency": 1100 }
+  ],
+  "invidious": [
+    { "url": "https://yewtu.be",                          "latency": 500 },
+    { "url": "https://inv.riverside.rocks",               "latency": 600 },
+    { "url": "https://invidious.privacydev.net",          "latency": 700 },
+    { "url": "https://invidious.tiekoetter.com",          "latency": 800 },
+    { "url": "https://invidious.adminforge.de",           "latency": 900 },
+    { "url": "https://inv.bp.projectsegfau.lt",           "latency": 1000 },
+    { "url": "https://invidious.namazso.eu",              "latency": 1100 }
   ],
   "cobalt": [],
   "stats": {
-    "pipedTotal": 21,
-    "pipedWorking": 3,
-    "cobaltTotal": 6,
-    "cobaltWorking": 0
+    "pipedTotal": 7,    "pipedWorking": 7,
+    "invidiousTotal": 7, "invidiousWorking": 7,
+    "cobaltTotal": 0,   "cobaltWorking": 0
   }
 }
