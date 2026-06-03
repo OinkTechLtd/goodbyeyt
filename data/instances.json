@@ -1,17 +1,17 @@
 {
-  "updatedAt": "2026-06-03T22:04:54.267Z",
+  "updatedAt": "2026-06-03T22:05:34.515Z",
   "piped": [
     {
       "url": "https://piped.video/api",
-      "latency": 429
+      "latency": 342
     },
     {
       "url": "https://api.piped.private.coffee",
-      "latency": 866
+      "latency": 1294
     },
     {
       "url": "https://api.piped.projectsegfau.lt",
-      "latency": 1250
+      "latency": 1340
     }
   ],
   "cobalt": [],
