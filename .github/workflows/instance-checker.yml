@@ -1,0 +1,169 @@
+name: 🔍 Instance Health Check & Update
+
+on:
+  schedule:
+    # Каждый день в 03:00 UTC (06:00 Moscow)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Принудительное обновление инстансов'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-and-update-instances:
+    name: Проверка и обновление инстансов
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout репозитория
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ⚙️ Установка Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Установка зависимостей
+        run: npm ci --only=production
+
+      - name: 🗂️ Создание директории data
+        run: mkdir -p data
+
+      - name: 🔍 Запуск поискового робота инстансов
+        id: update
+        run: |
+          echo "🚀 Запускаем поиск рабочих инстансов..."
+          node src/utils/instanceUpdater.js
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: 📊 Чтение результатов
+        id: results
+        run: |
+          if [ -f data/instances.json ]; then
+            PIPED_COUNT=$(node -e "const d=require('./data/instances.json'); console.log(d.piped?.length || 0)")
+            COBALT_COUNT=$(node -e "const d=require('./data/instances.json'); console.log(d.cobalt?.length || 0)")
+            UPDATED_AT=$(node -e "const d=require('./data/instances.json'); console.log(d.updatedAt || 'unknown')")
+            echo "piped_count=$PIPED_COUNT" >> $GITHUB_OUTPUT
+            echo "cobalt_count=$COBALT_COUNT" >> $GITHUB_OUTPUT
+            echo "updated_at=$UPDATED_AT" >> $GITHUB_OUTPUT
+            echo ""
+            echo "📋 Итог:"
+            echo "  ✅ Piped инстансов: $PIPED_COUNT"
+            echo "  ✅ Cobalt инстансов: $COBALT_COUNT"
+            echo "  🕐 Обновлено: $UPDATED_AT"
+          else
+            echo "❌ Файл data/instances.json не создан!"
+            exit 1
+          fi
+
+      - name: ⚠️ Проверка критического состояния
+        run: |
+          PIPED_COUNT=${{ steps.results.outputs.piped_count }}
+          if [ "$PIPED_COUNT" -lt 1 ]; then
+            echo "❌ КРИТИЧНО: Нет рабочих Piped инстансов!"
+            exit 1
+          fi
+          if [ "$PIPED_COUNT" -lt 3 ]; then
+            echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: Мало рабочих Piped инстансов ($PIPED_COUNT)"
+          fi
+
+      - name: 💾 Коммит обновлённых инстансов
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GoodbyeYT Instance Bot"
+
+          git add data/instances.json
+
+          if git diff --staged --quiet; then
+            echo "ℹ️ Изменений нет — инстансы актуальны"
+          else
+            git commit -m "🔄 [Bot] Обновление инстансов $(date +'%d.%m.%Y %H:%M') UTC
+
+          📊 Результаты:
+          - Piped: ${{ steps.results.outputs.piped_count }} рабочих инстансов
+          - Cobalt: ${{ steps.results.outputs.cobalt_count }} рабочих инстансов
+          - Обновлено: ${{ steps.results.outputs.updated_at }}"
+
+            git push
+            echo "✅ Изменения запушены в репозиторий"
+          fi
+
+      - name: 📢 Уведомление об успехе
+        if: success()
+        run: |
+          echo "✅ Проверка инстансов завершена успешно!"
+          echo "📡 Piped: ${{ steps.results.outputs.piped_count }} инстансов"
+          echo "📡 Cobalt: ${{ steps.results.outputs.cobalt_count }} инстансов"
+
+      - name: 🚨 Уведомление об ошибке
+        if: failure()
+        run: |
+          echo "❌ Проверка инстансов завершилась с ошибкой!"
+          echo "Необходимо ручное вмешательство."
+
+  verify-server:
+    name: Проверка работоспособности сервера
+    runs-on: ubuntu-latest
+    needs: check-and-update-instances
+    timeout-minutes: 5
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: ⚙️ Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Зависимости
+        run: npm ci --only=production
+
+      - name: 🧪 Тест загрузки инстансов
+        run: |
+          node -e "
+            const { loadInstances } = require('./src/utils/instanceManager');
+            const instances = loadInstances();
+            console.log('Piped:', instances.piped?.length || 0, 'инстансов');
+            console.log('Cobalt:', instances.cobalt?.length || 0, 'инстансов');
+            if (!instances.piped?.length) {
+              console.error('❌ Нет Piped инстансов!');
+              process.exit(1);
+            }
+            console.log('✅ Инстансы загружаются корректно');
+          "
+
+      - name: 🚀 Быстрый тест сервера
+        run: |
+          node src/server.js &
+          SERVER_PID=$!
+          sleep 3
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/instances/status)
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Сервер отвечает корректно (HTTP $STATUS)"
+          else
+            echo "❌ Сервер не отвечает (HTTP $STATUS)"
+            kill $SERVER_PID 2>/dev/null
+            exit 1
+          fi
+
+          kill $SERVER_PID 2>/dev/null
+          echo "✅ Все проверки пройдены"
+        env:
+          PORT: 3000
+          NODE_ENV: test

@@ -1,0 +1,95 @@
+name: 🛡️ Instance Emergency Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Причина запуска экстренного восстановления'
+        required: true
+        default: 'Все инстансы недоступны'
+  # Запускается если check завершился с ошибкой
+  workflow_run:
+    workflows: ["🔍 Instance Health Check & Update"]
+    types:
+      - completed
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  emergency-recovery:
+    name: Экстренное восстановление инстансов
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ⚙️ Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Установка зависимостей
+        run: npm ci --only=production
+
+      - name: 🗂️ Подготовка директорий
+        run: mkdir -p data
+
+      - name: 🔄 Расширенный поиск инстансов
+        run: |
+          echo "🚨 Запуск экстренного поиска инстансов..."
+          echo "Причина: ${{ github.event.inputs.reason || 'Автоматическое восстановление' }}"
+          echo ""
+
+          # Запускаем обновление с повышенным таймаутом
+          INSTANCE_TIMEOUT_MS=10000 node src/utils/instanceUpdater.js
+
+      - name: 📊 Проверка результатов
+        id: check
+        run: |
+          if [ -f data/instances.json ]; then
+            PIPED=$(node -e "const d=require('./data/instances.json'); console.log(d.piped?.length || 0)")
+            COBALT=$(node -e "const d=require('./data/instances.json'); console.log(d.cobalt?.length || 0)")
+            echo "piped=$PIPED" >> $GITHUB_OUTPUT
+            echo "cobalt=$COBALT" >> $GITHUB_OUTPUT
+            echo "✅ Найдено Piped: $PIPED, Cobalt: $COBALT"
+          else
+            echo "piped=0" >> $GITHUB_OUTPUT
+            echo "cobalt=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 💾 Сохранение результатов
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GoodbyeYT Emergency Bot"
+          git add data/instances.json
+          if ! git diff --staged --quiet; then
+            git commit -m "🚨 [Emergency] Восстановление инстансов $(date +'%d.%m.%Y %H:%M')
+
+            Piped: ${{ steps.check.outputs.piped }} инстансов
+            Cobalt: ${{ steps.check.outputs.cobalt }} инстансов"
+            git push
+          fi
+
+      - name: 📋 Создание Issue при критической ситуации
+        if: steps.check.outputs.piped == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 КРИТИЧНО: Нет рабочих Piped инстансов',
+              body: `## Экстренное уведомление\n\n**Время:** ${new Date().toISOString()}\n\n**Проблема:** Поисковый робот не нашёл ни одного рабочего Piped инстанса.\n\n**Требуется:** Ручная проверка и добавление новых инстансов в \`src/utils/instanceUpdater.js\`\n\n### Что проверить:\n- [ ] Доступность piped-instances.kavin.rocks\n- [ ] Работоспособность bootstrap инстансов\n- [ ] Сетевые ограничения GitHub Actions\n\n/cc @maintainers`,
+              labels: ['bug', 'critical', 'instances']
+            })
