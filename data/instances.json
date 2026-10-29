@@ -1,31 +1,31 @@
 {
-  "updatedAt": "2026-10-28T09:03:16.657Z",
+  "updatedAt": "2026-10-29T09:00:42.869Z",
   "piped": [
     {
       "url": "https://piped.video/api",
-      "latency": 461
+      "latency": 156
     },
     {
       "url": "https://api.piped.projectsegfau.lt",
-      "latency": 475
+      "latency": 625
     },
     {
       "url": "https://api.piped.private.coffee",
-      "latency": 901
+      "latency": 4425
     }
   ],
   "invidious": [
     {
       "url": "https://yt.chocolatemoo53.com",
-      "latency": 161
+      "latency": 155
     },
     {
       "url": "https://yewtu.be",
-      "latency": 273
+      "latency": 533
     },
     {
       "url": "https://invidious.tiekoetter.com",
-      "latency": 705
+      "latency": 1131
     }
   ],
   "cobalt": [],
